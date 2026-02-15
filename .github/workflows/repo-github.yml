@@ -52,8 +52,6 @@ jobs:
           - { src: "https://github.com/sbwml/package_system_urngd",                       dst: "package_system_urngd" }
           - { src: "https://github.com/sbwml/autocore-arm",                               dst: "autocore-arm" }
 
-          - { src: "https://github.com/sbwml/target_linux_generic",                       dst: "target_linux_generic" }
-
           - { src: "https://github.com/sbwml/package_firmware_linux-firmware",            dst: "package_firmware_linux-firmware" }
           - { src: "https://github.com/sbwml/package_kernel_mac80211",                    dst: "package_kernel_mac80211" }
           - { src: "https://github.com/sbwml/package_kernel_ath10k-ct",                   dst: "package_kernel_ath10k-ct" }
