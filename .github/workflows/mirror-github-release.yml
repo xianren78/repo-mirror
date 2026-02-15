@@ -28,7 +28,7 @@ jobs:
       - name: Mirror repo + releases/assets
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          DST_OWNER: xianren78   # TODO: 改成你的 GitHub 用户名或组织名
+          DST_OWNER: xianren78   # TODO：改成你的 GitHub 用户名或组织名
           SRC_URL: ${{ matrix.src }}
           DST_REPO: ${{ matrix.dst }}
         run: |
@@ -41,17 +41,17 @@ jobs:
           API="https://api.github.com"
           AUTH="Authorization: token ${GH_PAT}"
 
-          # -------- 解析源仓库 owner/repo --------
+          # 源仓库 owner/repo
           SRC_PATH="${SRC_URL#https://github.com/}"
           SRC_PATH="${SRC_PATH%.git}"
           SRC_OWNER="${SRC_PATH%%/*}"
           SRC_REPO="${SRC_PATH#*/}"
           echo "==> SRC_OWNER=${SRC_OWNER} SRC_REPO=${SRC_REPO}"
 
-          # -------- 目标仓库 push URL --------
+          # 目标 push URL
           dst_url="https://x-access-token:${GH_PAT}@github.com/${DST_OWNER}/${DST_REPO}.git"
 
-          # -------- 1) 创建目标仓库（不存在才创建）--------
+          # 1) 创建目标仓库（不存在才创建）
           if curl -fsSL -H "${AUTH}" "${API}/orgs/${DST_OWNER}" >/dev/null 2>&1; then
             CREATE_URL="${API}/orgs/${DST_OWNER}/repos"
             CREATE_BODY=$(jq -nc --arg name "${DST_REPO}" '{name:$name, private:false}')
@@ -68,14 +68,13 @@ jobs:
               -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
           fi
 
-          # -------- 2) 同步分支 + tags（排除 refs/pull/*）--------
+          # 2) 同步分支 + tags（排除 refs/pull/*）
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
 
           repo_dir="${work}/repo.git"
           rm -rf "${repo_dir}"
 
-          # 防止 runner 注入的 github header/凭据干扰
           git config --global --unset-all http.https://github.com/.extraheader || true
           git config --global credential.helper ""
           git config --global user.email "actions@github.com"
@@ -84,20 +83,17 @@ jobs:
           git clone --mirror "${SRC_URL}" "${repo_dir}"
           cd "${repo_dir}"
 
-          # 删除 PR refs，避免 hidden ref 推送失败
           git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
-
-          # 推送 heads + tags（带 prune）
           git push --force --prune "${dst_url}" "refs/heads/*:refs/heads/*"
           git push --force --prune "${dst_url}" "refs/tags/*:refs/tags/*"
+
           echo "==> Git refs synced."
 
-          # -------- 3) 同步 Releases + Assets（用 gh，避免 curl OOM）--------
+          # 3) 同步 Releases + assets（用 gh，且“下载前判断已存在则跳过下载”）
           export GH_TOKEN="${GH_PAT}"
 
           src_releases="$(curl -fsSL -H "Accept: application/vnd.github+json" \
             "${API}/repos/${SRC_OWNER}/${SRC_REPO}/releases?per_page=100")"
-
           rel_count="$(echo "${src_releases}" | jq 'length')"
           echo "==> Source releases: ${rel_count}"
           [ "${rel_count}" -eq 0 ] && exit 0
@@ -112,11 +108,10 @@ jobs:
 
             echo "---- Release tag: ${tag} target_commitish=${target:-<empty>}"
 
-            # 3.1 若目标 release 不存在则创建
+            # 3.1 目标 release 不存在就创建（target_commitish 只有在目标存在时才用）
             if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" >/dev/null 2>&1; then
               echo "Release exists on destination: ${tag}"
             else
-              # 只有当 target 在目标仓库确实存在（分支/标签）时才使用它；否则不传 --target
               use_target=""
               if [ -n "${target}" ] && [ "${target}" != "null" ] && [ "${target}" != "HEAD" ]; then
                 if git ls-remote --exit-code "${dst_url}" "refs/heads/${target}" >/dev/null 2>&1; then
@@ -135,19 +130,18 @@ jobs:
               args+=( --notes "${body}" )
               [ "${prerelease}" = "true" ] && args+=( --prerelease )
               [ "${draft}" = "true" ] && args+=( --draft )
-
               gh release create "${args[@]}"
             fi
 
-            # 3.2 同步 assets（同名跳过）
-            dst_assets="$(gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' 2>/dev/null || true)"
-
+            # 3.2 同步 assets：每个 asset 下载前都实时检查目标 release 是否已有同名
             echo "${rel}" | jq -c '.assets[]? // empty' | while read -r a; do
               aname="$(echo "${a}" | jq -r '.name')"
               adl="$(echo "${a}" | jq -r '.browser_download_url')"
 
-              if echo "${dst_assets}" | grep -Fxq "${aname}"; then
-                echo "  - asset exists, skip: ${aname}"
+              # 下载前实时查一次（你要求的：存在就跳过下载）
+              if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' \
+                | grep -Fxq "${aname}"; then
+                echo "  - asset exists, skip download: ${aname}"
                 continue
               fi
 
@@ -155,11 +149,19 @@ jobs:
               echo "  - downloading: ${aname}"
               curl -fL --retry 3 --retry-delay 2 -o "${tmpfile}" "${adl}"
 
-              # GitHub 单个 release asset 上限 2GB；这里留一点余量，避免跑到上限才失败
+              # 超大文件保护（GitHub 单个 asset 上限 2GB）
               size="$(stat -c%s "${tmpfile}")"
               max=$((1900 * 1024 * 1024))
               if [ "${size}" -gt "${max}" ]; then
                 echo "  - skip (too large > ~1.9GB): ${aname} (${size} bytes)"
+                rm -f "${tmpfile}"
+                continue
+              fi
+
+              # 兜底：下载完再查一次，防并发刚好有人上传了
+              if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' \
+                | grep -Fxq "${aname}"; then
+                echo "  - asset appeared during download, skip upload: ${aname}"
                 rm -f "${tmpfile}"
                 continue
               fi
