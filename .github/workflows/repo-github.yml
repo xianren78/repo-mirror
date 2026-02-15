@@ -95,6 +95,9 @@ jobs:
 
           - { src: "https://github.com/sbwml/package_kernel_tcp-brutal",                  dst: "package_kernel_tcp-brutal" }
           - { src: "https://github.com/sbwml/package_libs_libpcap",                       dst: "package_libs_libpcap" }
+          - { src: "https://github.com/sbwml/openwrt_caches",                            dst: "openwrt_caches" }
+          - { src: "https://github.com/sbwml/openwrt-llvm-toolchain",                              dst: "openwrt-llvm-toolchain" }
+          - { src: "https://github.com/sbwml/actions",                         dst: "actions" }
 
     steps:
       - name: Mirror one repo
