@@ -1,0 +1,146 @@
+name: Mirror sbwml repos to GitHub (set 2)
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 * * *"  # 每天 UTC 02:41（JST 11:41）
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-sbwml-set2
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { src: "https://github.com/sbwml/feeds_telephony_libs_dahdi-linux",            dst: "feeds_telephony_libs_dahdi-linux" }
+          - { src: "https://github.com/sbwml/kmod_packages_net_xtables-addons",            dst: "kmod_packages_net_xtables-addons" }
+          - { src: "https://github.com/sbwml/kmod_packages_net_coova-chilli",             dst: "kmod_packages_net_coova-chilli" }
+          - { src: "https://github.com/sbwml/package_network_utils_xdp-tools",            dst: "package_network_utils_xdp-tools" }
+          - { src: "https://github.com/sbwml/package_network_utils_linux-atm",            dst: "package_network_utils_linux-atm" }
+
+          - { src: "https://github.com/sbwml/package_boot_uboot-rockchip",                dst: "package_boot_uboot-rockchip" }
+          - { src: "https://github.com/sbwml/arm-trusted-firmware-rockchip",              dst: "arm-trusted-firmware-rockchip" }
+
+          - { src: "https://github.com/sbwml/tools_dwarves",                              dst: "tools_dwarves" }
+
+          - { src: "https://github.com/sbwml/package_kernel_r8168",                       dst: "package_kernel_r8168" }
+          - { src: "https://github.com/sbwml/package_kernel_r8152",                       dst: "package_kernel_r8152" }
+          - { src: "https://github.com/sbwml/package_kernel_r8101",                       dst: "package_kernel_r8101" }
+          - { src: "https://github.com/sbwml/package_kernel_r8125",                       dst: "package_kernel_r8125" }
+          - { src: "https://github.com/sbwml/package_kernel_r8126",                       dst: "package_kernel_r8126" }
+          - { src: "https://github.com/sbwml/package_kernel_r8127",                       dst: "package_kernel_r8127" }
+
+          - { src: "https://github.com/sbwml/package_system_fstools",                     dst: "package_system_fstools" }
+          - { src: "https://github.com/sbwml/package_utils_util-linux",                   dst: "package_utils_util-linux" }
+
+          - { src: "https://github.com/sbwml/packages_new_nat6",                          dst: "packages_new_nat6" }
+          - { src: "https://github.com/sbwml/package_new_natflow",                        dst: "package_new_natflow" }
+
+          - { src: "https://github.com/sbwml/package_libs_nghttp3",                       dst: "package_libs_nghttp3" }
+          - { src: "https://github.com/sbwml/package_libs_ngtcp2",                        dst: "package_libs_ngtcp2" }
+
+          - { src: "https://github.com/sbwml/feeds_packages_net_curl",                    dst: "feeds_packages_net_curl" }
+          - { src: "https://github.com/sbwml/feeds_packages_net_nginx",                   dst: "feeds_packages_net_nginx" }
+
+          - { src: "https://github.com/sbwml/package_system_urngd",                       dst: "package_system_urngd" }
+          - { src: "https://github.com/sbwml/autocore-arm",                               dst: "autocore-arm" }
+
+          - { src: "https://github.com/sbwml/target_linux_generic",                       dst: "target_linux_generic" }
+
+          - { src: "https://github.com/sbwml/package_firmware_linux-firmware",            dst: "package_firmware_linux-firmware" }
+          - { src: "https://github.com/sbwml/package_kernel_mac80211",                    dst: "package_kernel_mac80211" }
+          - { src: "https://github.com/sbwml/package_kernel_ath10k-ct",                   dst: "package_kernel_ath10k-ct" }
+          - { src: "https://github.com/sbwml/package_kernel_rtl8822cs",                   dst: "package_kernel_rtl8822cs" }
+
+          - { src: "https://github.com/sbwml/packages_lang_golang",                       dst: "packages_lang_golang" }
+          - { src: "https://github.com/sbwml/feeds_packages_lang_node-prebuilt",         dst: "feeds_packages_lang_node-prebuilt" }
+
+          - { src: "https://github.com/sbwml/default-settings",                           dst: "default-settings" }
+          - { src: "https://github.com/sbwml/wwan-packages",                              dst: "wwan-packages" }
+
+          - { src: "https://github.com/sbwml/luci-app-filemanager",                       dst: "luci-app-filemanager" }
+          - { src: "https://github.com/sbwml/luci-app-quickfile",                         dst: "luci-app-quickfile" }
+          - { src: "https://github.com/sbwml/luci-app-airplay2",                          dst: "luci-app-airplay2" }
+          - { src: "https://github.com/sbwml/luci-app-webdav",                            dst: "luci-app-webdav" }
+
+          - { src: "https://github.com/sbwml/packages_utils_lrzsz",                       dst: "packages_utils_lrzsz" }
+          - { src: "https://github.com/sbwml/feeds_packages_net_samba4",                  dst: "feeds_packages_net_samba4" }
+          - { src: "https://github.com/sbwml/feeds_packages_net_zerotier",                dst: "feeds_packages_net_zerotier" }
+
+          - { src: "https://github.com/sbwml/ariang-nginx",                               dst: "ariang-nginx" }
+          - { src: "https://github.com/sbwml/feeds_packages_net_aria2",                   dst: "feeds_packages_net_aria2" }
+
+          - { src: "https://github.com/sbwml/luci-app-airconnect",                        dst: "luci-app-airconnect" }
+          - { src: "https://github.com/sbwml/package_new_ftp",                            dst: "package_new_ftp" }
+          - { src: "https://github.com/sbwml/package_new_nethogs",                        dst: "package_new_nethogs" }
+
+          - { src: "https://github.com/sbwml/openwrt_helloworld",                         dst: "openwrt_helloworld" }
+          - { src: "https://github.com/sbwml/luci-app-openlist2",                         dst: "luci-app-openlist2" }
+          - { src: "https://github.com/sbwml/luci-app-qbittorrent",                       dst: "luci-app-qbittorrent" }
+
+          - { src: "https://github.com/sbwml/luci-theme-argon",                           dst: "luci-theme-argon" }
+          - { src: "https://github.com/sbwml/luci-app-mosdns",                            dst: "luci-app-mosdns" }
+          - { src: "https://github.com/sbwml/OpenAppFilter",                              dst: "OpenAppFilter" }
+          - { src: "https://github.com/sbwml/luci-app-mentohust",                         dst: "luci-app-mentohust" }
+
+          - { src: "https://github.com/sbwml/openwrt_pkgs",                               dst: "openwrt_pkgs" }
+          - { src: "https://github.com/sbwml/feeds_packages_utils_unzip",                 dst: "feeds_packages_utils_unzip" }
+
+          - { src: "https://github.com/sbwml/package_kernel_tcp-brutal",                  dst: "package_kernel_tcp-brutal" }
+          - { src: "https://github.com/sbwml/package_libs_libpcap",                       dst: "package_libs_libpcap" }
+
+    steps:
+      - name: Mirror one repo
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          OWNER: xianren78   # TODO: 改成你的 GitHub 用户名或组织名
+          SRC: ${{ matrix.src }}
+          DST: ${{ matrix.dst }}
+        run: |
+          set -euo pipefail
+
+          echo "==> SRC: ${SRC}"
+          echo "==> DST: ${OWNER}/${DST}"
+
+          API="https://api.github.com"
+          AUTH="Authorization: token ${GH_PAT}"
+
+          # 判断是组织还是个人
+          if curl -fsSL -H "${AUTH}" "${API}/orgs/${OWNER}" >/dev/null 2>&1; then
+            CREATE_URL="${API}/orgs/${OWNER}/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
+          else
+            CREATE_URL="${API}/user/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
+          fi
+
+          # 不存在则创建
+          if curl -fsSL -H "${AUTH}" "${API}/repos/${OWNER}/${DST}" >/dev/null 2>&1; then
+            echo "Repo exists: ${OWNER}/${DST}"
+          else
+            echo "Creating repo: ${OWNER}/${DST}"
+            curl -fsSL -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+              -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
+          fi
+
+          # mirror 同步
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+
+          git config --global user.email "actions@github.com"
+          git config --global user.name  "github-actions[bot]"
+
+          git clone --mirror "${SRC}" "${work}/repo.git"
+          cd "${work}/repo.git"
+
+          dst_url="https://${GH_PAT}@github.com/${OWNER}/${DST}.git"
+          git push --mirror "${dst_url}"
+
+          echo "Done: ${OWNER}/${DST}"
