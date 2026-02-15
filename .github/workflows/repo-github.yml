@@ -104,13 +104,13 @@ jobs:
           DST: ${{ matrix.dst }}
         run: |
           set -euo pipefail
-
+          
           echo "==> SRC: ${SRC}"
           echo "==> DST: ${OWNER}/${DST}"
-
+          
           API="https://api.github.com"
           AUTH="Authorization: token ${GH_PAT}"
-
+          
           # 判断是组织还是个人
           if curl -fsSL -H "${AUTH}" "${API}/orgs/${OWNER}" >/dev/null 2>&1; then
             CREATE_URL="${API}/orgs/${OWNER}/repos"
@@ -119,7 +119,17 @@ jobs:
             CREATE_URL="${API}/user/repos"
             CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
           fi
-
+          
+          # 解析源仓库 owner/repo（用于取 default_branch）
+          SRC_PATH="${SRC#https://github.com/}"
+          SRC_PATH="${SRC_PATH%.git}"
+          SRC_OWNER="${SRC_PATH%%/*}"
+          SRC_REPO="${SRC_PATH#*/}"
+          
+          # 读取源仓库默认分支
+          SRC_DEFAULT_BRANCH="$(curl -fsSL -H "${AUTH}" "${API}/repos/${SRC_OWNER}/${SRC_REPO}" | jq -r '.default_branch')"
+          echo "==> Source default branch: ${SRC_DEFAULT_BRANCH}"
+          
           # 不存在则创建
           if curl -fsSL -H "${AUTH}" "${API}/repos/${OWNER}/${DST}" >/dev/null 2>&1; then
             echo "Repo exists: ${OWNER}/${DST}"
@@ -128,22 +138,38 @@ jobs:
             curl -fsSL -X POST -H "${AUTH}" -H "Content-Type: application/json" \
               -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
           fi
-
+          
           # mirror 同步
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
-
+          
           git config --global user.email "actions@github.com"
           git config --global user.name  "github-actions[bot]"
-
+          
           dst_url="https://x-access-token:${GH_PAT}@github.com/${OWNER}/${DST}.git"
-
+          
+          # 防止临时目录偶发残留
+          rm -rf "${work}/repo.git"
+          
           git clone --mirror "${SRC}" "${work}/repo.git"
           cd "${work}/repo.git"
-
+          
+          # 删除 PR refs（GitHub 禁止 push hidden refs）
           git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
-
+          
+          # 推送 heads + tags
           git push --force --prune "${dst_url}" "refs/heads/*:refs/heads/*"
           git push --force --prune "${dst_url}" "refs/tags/*:refs/tags/*"
-
+          
+          # 把目标仓库默认分支改成源仓库默认分支（如果目标已有该分支）
+          # 先确认目标远端确实存在该分支（避免 PATCH 失败）
+          if git ls-remote --exit-code "${dst_url}" "refs/heads/${SRC_DEFAULT_BRANCH}" >/dev/null 2>&1; then
+            echo "==> Setting destination default branch to: ${SRC_DEFAULT_BRANCH}"
+            curl -fsSL -X PATCH -H "${AUTH}" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg b "${SRC_DEFAULT_BRANCH}" '{default_branch:$b}')" \
+              "${API}/repos/${OWNER}/${DST}" >/dev/null
+          else
+            echo "==> Skip setting default branch; branch not found on destination: ${SRC_DEFAULT_BRANCH}"
+          fi
+          
           echo "Done: ${OWNER}/${DST}"
