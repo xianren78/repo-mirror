@@ -1,0 +1,195 @@
+name: Mirror repos + releases to GitHub
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 2 * * *"  # 每天 UTC 02:41（JST 11:41）
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-sbwml-with-releases
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ====== 把你的仓库列表放这里（示例放几条，你按需继续加）======
+          - { src: "https://github.com/sbwml/openwrt-llvm-toolchain", dst: "openwrt-llvm-toolchain" }
+          - { src: "https://github.com/sbwml/openwrt_caches",              dst: "openwrt_caches" }
+          # =======================================================
+
+    steps:
+      - name: Mirror repo + releases
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          DST_OWNER: xianren78  # TODO：改成你的 GitHub 用户名或组织名
+          SRC_URL: ${{ matrix.src }}
+          DST_REPO: ${{ matrix.dst }}
+        run: |
+          set -euo pipefail
+          [ -n "${GH_PAT}" ] || (echo "GH_PAT is empty (missing Actions secret?)"; exit 1)
+
+          echo "==> SRC: ${SRC_URL}"
+          echo "==> DST: ${DST_OWNER}/${DST_REPO}"
+
+          API="https://api.github.com"
+          AUTH="Authorization: token ${GH_PAT}"
+
+          # -------- 解析源仓库 owner/repo --------
+          # 兼容 https://github.com/owner/repo 或带 .git
+          SRC_PATH="${SRC_URL#https://github.com/}"
+          SRC_PATH="${SRC_PATH%.git}"
+          SRC_OWNER="${SRC_PATH%%/*}"
+          SRC_REPO="${SRC_PATH#*/}"
+
+          echo "==> SRC_OWNER=${SRC_OWNER} SRC_REPO=${SRC_REPO}"
+
+          # -------- 1) 创建目标仓库（不存在才创建）--------
+          if curl -fsSL -H "${AUTH}" "${API}/orgs/${DST_OWNER}" >/dev/null 2>&1; then
+            CREATE_URL="${API}/orgs/${DST_OWNER}/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST_REPO}" '{name:$name, private:false}')
+          else
+            CREATE_URL="${API}/user/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST_REPO}" '{name:$name, private:false}')
+          fi
+
+          if curl -fsSL -H "${AUTH}" "${API}/repos/${DST_OWNER}/${DST_REPO}" >/dev/null 2>&1; then
+            echo "Repo exists: ${DST_OWNER}/${DST_REPO}"
+          else
+            echo "Creating repo: ${DST_OWNER}/${DST_REPO}"
+            curl -fsSL -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+              -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
+          fi
+
+          # -------- 2) mirror 同步分支 + tags（排除 refs/pull/*）--------
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+
+          repo_dir="${work}/repo.git"
+          rm -rf "${repo_dir}"
+
+          # 避免 runner 里其它凭据干扰
+          git config --global --unset-all http.https://github.com/.extraheader || true
+          git config --global credential.helper ""
+          git config --global user.email "actions@github.com"
+          git config --global user.name  "github-actions[bot]"
+
+          dst_url="https://x-access-token:${GH_PAT}@github.com/${DST_OWNER}/${DST_REPO}.git"
+
+          git clone --mirror "${SRC_URL}" "${repo_dir}"
+          cd "${repo_dir}"
+
+          # 删除 PR refs（GitHub 禁止 push hidden refs）
+          git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
+
+          # 推送 heads + tags（带 prune）
+          git push --force --prune "${dst_url}" "refs/heads/*:refs/heads/*"
+          git push --force --prune "${dst_url}" "refs/tags/*:refs/tags/*"
+
+          echo "==> Git refs synced."
+
+          # -------- 3) 同步 Releases（含 assets）--------
+          # 逻辑：按 tag 获取源 release 列表 -> 目标按 tag 查是否存在 -> 不存在就创建 -> assets 按文件名补齐
+          echo "==> Syncing releases..."
+
+          # 拉取源 releases（分页：最多 10 页 * 100 = 1000 个 release，足够了）
+          src_releases_json="${work}/src_releases.json"
+          : > "${src_releases_json}"
+          for page in $(seq 1 10); do
+            url="${API}/repos/${SRC_OWNER}/${SRC_REPO}/releases?per_page=100&page=${page}"
+            chunk="$(curl -fsSL -H "Accept: application/vnd.github+json" "${url}")"
+            len="$(echo "${chunk}" | jq 'length')"
+            if [ "${len}" -eq 0 ]; then
+              break
+            fi
+            echo "${chunk}" >> "${src_releases_json}"
+          done
+
+          # src_releases_json 现在是多段 JSON 数组拼接，转成一个数组
+          src_all="$(jq -s 'add' "${src_releases_json}" 2>/dev/null || echo '[]')"
+          count="$(echo "${src_all}" | jq 'length')"
+          echo "==> Source releases: ${count}"
+
+          if [ "${count}" -eq 0 ]; then
+            echo "==> No releases to sync."
+            exit 0
+          fi
+
+          # helper：目标根据 tag 查 release
+          get_dst_release_by_tag () {
+            local tag="$1"
+            curl -fsSL -H "${AUTH}" -H "Accept: application/vnd.github+json" \
+              "${API}/repos/${DST_OWNER}/${DST_REPO}/releases/tags/${tag}" 2>/dev/null || true
+          }
+
+          # 遍历源 releases
+          echo "${src_all}" | jq -c '.[]' | while read -r rel; do
+            tag="$(echo "${rel}" | jq -r '.tag_name')"
+            name="$(echo "${rel}" | jq -r '.name // empty')"
+            body="$(echo "${rel}" | jq -r '.body // empty')"
+            draft="$(echo "${rel}" | jq -r '.draft')"
+            prerelease="$(echo "${rel}" | jq -r '.prerelease')"
+            target="$(echo "${rel}" | jq -r '.target_commitish // "main"')"
+
+            echo "---- Release tag: ${tag}"
+
+            dst_rel="$(get_dst_release_by_tag "${tag}")"
+            if [ -z "${dst_rel}" ]; then
+              echo "Creating release ${tag} in destination..."
+              create_payload="$(jq -nc \
+                --arg tag_name "${tag}" \
+                --arg name "${name}" \
+                --arg body "${body}" \
+                --arg target_commitish "${target}" \
+                --argjson draft "${draft}" \
+                --argjson prerelease "${prerelease}" \
+                '{tag_name:$tag_name, name:$name, body:$body, target_commitish:$target_commitish, draft:$draft, prerelease:$prerelease}')"
+
+              dst_rel="$(curl -fsSL -X POST \
+                -H "${AUTH}" -H "Accept: application/vnd.github+json" -H "Content-Type: application/json" \
+                -d "${create_payload}" \
+                "${API}/repos/${DST_OWNER}/${DST_REPO}/releases")"
+            else
+              echo "Release exists on destination: ${tag} (will sync missing assets only)"
+            fi
+
+            dst_release_id="$(echo "${dst_rel}" | jq -r '.id')"
+            upload_url="$(echo "${dst_rel}" | jq -r '.upload_url' | sed 's/{?name,label}//')"
+
+            # 目标已有 assets 名称集合
+            dst_assets_names="$(echo "${dst_rel}" | jq -r '.assets[].name' 2>/dev/null || true)"
+
+            # 源 assets 列表
+            echo "${rel}" | jq -c '.assets[]? // empty' | while read -r a; do
+              aname="$(echo "${a}" | jq -r '.name')"
+              adl="$(echo "${a}" | jq -r '.browser_download_url')"
+
+              if echo "${dst_assets_names}" | grep -Fxq "${aname}"; then
+                echo "  - asset exists, skip: ${aname}"
+                continue
+              fi
+
+              echo "  - downloading: ${aname}"
+              tmpfile="${work}/${aname}"
+              curl -fL --retry 3 --retry-delay 2 -o "${tmpfile}" "${adl}"
+
+              echo "  - uploading: ${aname}"
+              curl -fsSL -X POST \
+                -H "${AUTH}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"${tmpfile}" \
+                "${upload_url}?name=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "${aname}")" \
+                >/dev/null
+
+              rm -f "${tmpfile}"
+            done
+          done
+
+          echo "==> Releases synced."
