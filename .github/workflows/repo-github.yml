@@ -143,7 +143,14 @@ jobs:
           git clone --mirror "${SRC}" "${work}/repo.git"
           cd "${work}/repo.git"
 
-          dst_url="https://${GH_PAT}@github.com/${OWNER}/${DST}.git"
-          git push --mirror "${dst_url}"
+          dst_url="https://x-access-token:${GH_PAT}@github.com/${OWNER}/${DST}.git"
+
+          git clone --mirror "${SRC}" "${work}/repo.git"
+          cd "${work}/repo.git"
+
+          git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
+
+          git push --force --prune "${dst_url}" "refs/heads/*:refs/heads/*"
+          git push --force --prune "${dst_url}" "refs/tags/*:refs/tags/*"
 
           echo "Done: ${OWNER}/${DST}"
