@@ -41,17 +41,17 @@ jobs:
           API="https://api.github.com"
           AUTH="Authorization: token ${GH_PAT}"
 
-          # 源仓库 owner/repo
+          # -------- 解析源仓库 owner/repo --------
           SRC_PATH="${SRC_URL#https://github.com/}"
           SRC_PATH="${SRC_PATH%.git}"
           SRC_OWNER="${SRC_PATH%%/*}"
           SRC_REPO="${SRC_PATH#*/}"
           echo "==> SRC_OWNER=${SRC_OWNER} SRC_REPO=${SRC_REPO}"
 
-          # 目标 push URL
+          # 目标 push URL（用 x-access-token 最稳）
           dst_url="https://x-access-token:${GH_PAT}@github.com/${DST_OWNER}/${DST_REPO}.git"
 
-          # 1) 创建目标仓库（不存在才创建）
+          # -------- 1) 创建目标仓库（不存在才创建）--------
           if curl -fsSL -H "${AUTH}" "${API}/orgs/${DST_OWNER}" >/dev/null 2>&1; then
             CREATE_URL="${API}/orgs/${DST_OWNER}/repos"
             CREATE_BODY=$(jq -nc --arg name "${DST_REPO}" '{name:$name, private:false}')
@@ -68,13 +68,14 @@ jobs:
               -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
           fi
 
-          # 2) 同步分支 + tags（排除 refs/pull/*）
+          # -------- 2) 同步分支 + tags（排除 refs/pull/*）--------
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
 
           repo_dir="${work}/repo.git"
           rm -rf "${repo_dir}"
 
+          # 防止 runner 注入的 github header/凭据干扰
           git config --global --unset-all http.https://github.com/.extraheader || true
           git config --global credential.helper ""
           git config --global user.email "actions@github.com"
@@ -83,13 +84,15 @@ jobs:
           git clone --mirror "${SRC_URL}" "${repo_dir}"
           cd "${repo_dir}"
 
+          # 删除 PR refs，避免 hidden ref 推送失败
           git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
+
+          # 推送 heads + tags（带 prune）
           git push --force --prune "${dst_url}" "refs/heads/*:refs/heads/*"
           git push --force --prune "${dst_url}" "refs/tags/*:refs/tags/*"
-
           echo "==> Git refs synced."
 
-          # 3) 同步 Releases + assets（用 gh，且“下载前判断已存在则跳过下载”）
+          # -------- 3) 同步 Releases + assets（下载前跳过同名）--------
           export GH_TOKEN="${GH_PAT}"
 
           src_releases="$(curl -fsSL -H "Accept: application/vnd.github+json" \
@@ -108,7 +111,7 @@ jobs:
 
             echo "---- Release tag: ${tag} target_commitish=${target:-<empty>}"
 
-            # 3.1 目标 release 不存在就创建（target_commitish 只有在目标存在时才用）
+            # 3.1 若目标 release 不存在就创建（target_commitish 只有在目标存在时才用）
             if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" >/dev/null 2>&1; then
               echo "Release exists on destination: ${tag}"
             else
@@ -118,8 +121,6 @@ jobs:
                   use_target="${target}"
                 elif git ls-remote --exit-code "${dst_url}" "refs/tags/${target}" >/dev/null 2>&1; then
                   use_target="${target}"
-                else
-                  use_target=""
                 fi
               fi
 
@@ -133,41 +134,47 @@ jobs:
               gh release create "${args[@]}"
             fi
 
-            # 3.2 同步 assets：每个 asset 下载前都实时检查目标 release 是否已有同名
+            # 3.2 同步 assets：
+            #     你当前上传使用本地文件 basename => "${tag}-${aname}"
+            #     所以判断也必须用 upload_name，否则会漏判导致重复上传报错
             echo "${rel}" | jq -c '.assets[]? // empty' | while read -r a; do
               aname="$(echo "${a}" | jq -r '.name')"
               adl="$(echo "${a}" | jq -r '.browser_download_url')"
 
-              # 下载前实时查一次（你要求的：存在就跳过下载）
+              upload_name="${tag}-${aname}"
+
+              # 下载前实时查：存在同名 asset 则跳过下载（你要求的）
               if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' \
-                | grep -Fxq "${aname}"; then
-                echo "  - asset exists, skip download: ${aname}"
+                | grep -Fxq "${upload_name}"; then
+                echo "  - asset exists, skip download: ${upload_name}"
                 continue
               fi
 
-              tmpfile="${work}/${tag}-${aname}"
-              echo "  - downloading: ${aname}"
+              tmpfile="${work}/${upload_name}"
+              echo "  - downloading: ${aname} -> ${upload_name}"
               curl -fL --retry 3 --retry-delay 2 -o "${tmpfile}" "${adl}"
 
               # 超大文件保护（GitHub 单个 asset 上限 2GB）
               size="$(stat -c%s "${tmpfile}")"
               max=$((1900 * 1024 * 1024))
               if [ "${size}" -gt "${max}" ]; then
-                echo "  - skip (too large > ~1.9GB): ${aname} (${size} bytes)"
+                echo "  - skip (too large > ~1.9GB): ${upload_name} (${size} bytes)"
                 rm -f "${tmpfile}"
                 continue
               fi
 
               # 兜底：下载完再查一次，防并发刚好有人上传了
               if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' \
-                | grep -Fxq "${aname}"; then
-                echo "  - asset appeared during download, skip upload: ${aname}"
+                | grep -Fxq "${upload_name}"; then
+                echo "  - asset appeared during download, skip upload: ${upload_name}"
                 rm -f "${tmpfile}"
                 continue
               fi
 
-              echo "  - uploading: ${aname}"
+              echo "  - uploading: ${upload_name}"
               gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}"
+              # 如你希望“永不因并发失败”，可改为：
+              # gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}" --clobber
 
               rm -f "${tmpfile}"
             done
