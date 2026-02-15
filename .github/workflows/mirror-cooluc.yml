@@ -50,16 +50,13 @@ jobs:
           API="https://api.github.com"
           AUTH="Authorization: token ${GH_PAT}"
           
-          # -------- 解析源仓库 owner/repo，用来读取 default_branch --------
-          SRC_PATH="${SRC#https://github.com/}"
+          # -------- 解析源仓库 owner/repo（cooluc 是 gitea：/sbwml/repo）--------
+          SRC_PATH="${SRC#https://git.cooluc.com/}"
           SRC_PATH="${SRC_PATH%.git}"
           SRC_OWNER="${SRC_PATH%%/*}"
           SRC_REPO="${SRC_PATH#*/}"
           
-          SRC_DEFAULT_BRANCH="$(curl -fsSL -H "${AUTH}" "${API}/repos/${SRC_OWNER}/${SRC_REPO}" | jq -r '.default_branch')"
-          echo "==> Source default branch: ${SRC_DEFAULT_BRANCH}"
-          
-          # -------- 1) 目标仓库不存在则创建 --------
+          # -------- 目标仓库不存在则创建 --------
           if curl -fsSL -H "${AUTH}" "${API}/orgs/${OWNER}" >/dev/null 2>&1; then
             CREATE_URL="${API}/orgs/${OWNER}/repos"
             CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
@@ -76,7 +73,7 @@ jobs:
               -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
           fi
           
-          # -------- 2) mirror clone + mirror push（branches/tags 等）--------
+          # -------- mirror clone + mirror push --------
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
           
@@ -88,28 +85,39 @@ jobs:
           git clone --mirror "${SRC}" "${work}/repo.git"
           cd "${work}/repo.git"
           
-          # 删除 PR refs（GitHub 禁止 push hidden refs: refs/pull/*）
+          # 删除 PR refs（防止 hidden ref 问题；没有也不影响）
           git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
           
-          # 目标 remote（用 x-access-token 最稳）
+          # 用 token 推送（更稳）
           dst_url="https://x-access-token:${GH_PAT}@github.com/${OWNER}/${DST}.git"
-          git remote set-url --push origin "${dst_url}" || true
-          git remote add github "${dst_url}" 2>/dev/null || true
           
           echo "Pushing --mirror..."
-          # 不用 --mirror 推 refs/pull 后就不会再 hidden ref 报错；这里继续用 --mirror
           git push --mirror "${dst_url}"
           
-          # -------- 3) 同步目标仓库默认分支为源默认分支 --------
-          # 先确认目标确实有该分支（否则 PATCH 会失败）
-          if git ls-remote --exit-code "${dst_url}" "refs/heads/${SRC_DEFAULT_BRANCH}" >/dev/null 2>&1; then
-            echo "==> Setting destination default branch to: ${SRC_DEFAULT_BRANCH}"
-            curl -fsSL -X PATCH -H "${AUTH}" -H "Content-Type: application/json" \
-              -d "$(jq -nc --arg b "${SRC_DEFAULT_BRANCH}" '{default_branch:$b}')" \
-              "${API}/repos/${OWNER}/${DST}" >/dev/null
+          # -------- 设置目标默认分支 = 源默认分支 --------
+          # 从本地 mirror 仓库推断源默认分支：
+          # gitea 一般会把源 HEAD 指向默认分支，clone --mirror 后 origin/HEAD 会存在
+          SRC_DEFAULT_BRANCH="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+          
+          # 兜底：如果拿不到 origin/HEAD，就用第一个分支（尽量不空）
+          if [ -z "${SRC_DEFAULT_BRANCH}" ]; then
+            SRC_DEFAULT_BRANCH="$(git for-each-ref --format='%(refname:short)' refs/heads | head -n1 || true)"
+          fi
+          
+          echo "==> Source default branch (detected): ${SRC_DEFAULT_BRANCH:-<empty>}"
+          
+          if [ -n "${SRC_DEFAULT_BRANCH}" ]; then
+            # 确认目标仓库里确实存在该分支（否则 PATCH 会失败）
+            if git ls-remote --exit-code "${dst_url}" "refs/heads/${SRC_DEFAULT_BRANCH}" >/dev/null 2>&1; then
+              echo "==> Setting destination default branch to: ${SRC_DEFAULT_BRANCH}"
+              curl -fsSL -X PATCH -H "${AUTH}" -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg b "${SRC_DEFAULT_BRANCH}" '{default_branch:$b}')" \
+                "${API}/repos/${OWNER}/${DST}" >/dev/null
+            else
+              echo "==> Skip setting default branch; not found on destination: ${SRC_DEFAULT_BRANCH}"
+            fi
           else
-            echo "==> Skip setting default branch; branch not found on destination: ${SRC_DEFAULT_BRANCH}"
+            echo "==> Skip setting default branch; cannot detect source default branch"
           fi
           
           echo "Done: ${OWNER}/${DST}"
-
