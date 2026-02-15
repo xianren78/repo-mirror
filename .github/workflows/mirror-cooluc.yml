@@ -1,0 +1,93 @@
+name: Mirror cooluc repos to GitHub
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 2 * * *"  # 每天 11:17 JST 左右跑一次（UTC 02:17）
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-cooluc
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { src: "https://git.cooluc.com/sbwml/package_libs_musl-libc",            dst: "package_libs_musl-libc" }
+          - { src: "https://git.cooluc.com/sbwml/shortcut-fe",                       dst: "shortcut-fe" }
+          - { src: "https://git.cooluc.com/sbwml/nft-fullcone",                       dst: "nft-fullcone" }
+          - { src: "https://git.cooluc.com/sbwml/luci-app-dockerman",                 dst: "luci-app-dockerman" }
+          - { src: "https://git.cooluc.com/sbwml/packages_utils_docker",              dst: "packages_utils_docker" }
+          - { src: "https://git.cooluc.com/sbwml/packages_utils_dockerd",             dst: "packages_utils_dockerd" }
+          - { src: "https://git.cooluc.com/sbwml/packages_utils_containerd",          dst: "packages_utils_containerd" }
+          - { src: "https://git.cooluc.com/sbwml/packages_utils_runc",                dst: "packages_utils_runc" }
+          - { src: "https://git.cooluc.com/sbwml/miniupnpd",                          dst: "miniupnpd" }
+          - { src: "https://git.cooluc.com/sbwml/luci-app-upnp",                      dst: "luci-app-upnp" }
+          - { src: "https://git.cooluc.com/sbwml/target_linux_rockchip-6.x",          dst: "target_linux_rockchip-6.x" }
+          - { src: "https://git.cooluc.com/sbwml/target_linux_generic",               dst: "target_linux_generic" }
+          - { src: "https://git.cooluc.com/sbwml/luci-app-sqm",                       dst: "luci-app-sqm" }
+          - { src: "https://git.cooluc.com/sbwml/feeds_packages_libs_dmx_usb_module", dst: "feeds_packages_libs_dmx_usb_module" }
+
+    steps:
+      - name: Checkout (this repo)
+        uses: actions/checkout@v4
+
+      - name: Mirror one repo
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          OWNER: your_github_owner_or_org   # TODO: 改成你的 GitHub 用户名或组织名
+          SRC: ${{ matrix.src }}
+          DST: ${{ matrix.dst }}
+        run: |
+          set -euo pipefail
+
+          echo "==> SRC: ${SRC}"
+          echo "==> DST: ${OWNER}/${DST}"
+
+          # 1) 目标仓库不存在则创建（默认 public；想 private 就把 --private 换上）
+          API="https://api.github.com"
+          AUTH="Authorization: token ${GH_PAT}"
+
+          # 判断是组织还是个人：能 GET /orgs/OWNER 则当组织，否则当个人
+          if curl -fsSL -H "${AUTH}" "${API}/orgs/${OWNER}" >/dev/null 2>&1; then
+            CREATE_URL="${API}/orgs/${OWNER}/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
+          else
+            CREATE_URL="${API}/user/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
+          fi
+
+          if curl -fsSL -H "${AUTH}" "${API}/repos/${OWNER}/${DST}" >/dev/null 2>&1; then
+            echo "Repo exists: ${OWNER}/${DST}"
+          else
+            echo "Creating repo: ${OWNER}/${DST}"
+            curl -fsSL -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+              -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
+          fi
+
+          # 2) mirror clone + mirror push（保留所有 refs：branches/tags）
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+
+          git config --global user.email "actions@github.com"
+          git config --global user.name  "github-actions[bot]"
+
+          echo "Cloning --mirror..."
+          git clone --mirror "${SRC}" "${work}/repo.git"
+
+          cd "${work}/repo.git"
+
+          # 目标 remote（使用 PAT 推送）
+          dst_url="https://${GH_PAT}@github.com/${OWNER}/${DST}.git"
+          git remote set-url --push origin "${dst_url}" || true
+          git remote add github "${dst_url}" 2>/dev/null || true
+
+          echo "Pushing --mirror..."
+          git push --mirror "${dst_url}"
+
+          echo "Done: ${OWNER}/${DST}"
