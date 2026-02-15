@@ -28,8 +28,6 @@ jobs:
           - { src: "https://git.cooluc.com/sbwml/packages_utils_runc",                dst: "packages_utils_runc" }
           - { src: "https://git.cooluc.com/sbwml/miniupnpd",                          dst: "miniupnpd" }
           - { src: "https://git.cooluc.com/sbwml/luci-app-upnp",                      dst: "luci-app-upnp" }
-          - { src: "https://git.cooluc.com/sbwml/target_linux_rockchip-6.x",          dst: "target_linux_rockchip-6.x" }
-          - { src: "https://git.cooluc.com/sbwml/target_linux_generic",               dst: "target_linux_generic" }
           - { src: "https://git.cooluc.com/sbwml/luci-app-sqm",                       dst: "luci-app-sqm" }
           - { src: "https://git.cooluc.com/sbwml/feeds_packages_libs_dmx_usb_module", dst: "feeds_packages_libs_dmx_usb_module" }
 
