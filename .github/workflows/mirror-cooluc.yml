@@ -40,7 +40,7 @@ jobs:
       - name: Mirror one repo
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          OWNER: your_github_owner_or_org   # TODO: 改成你的 GitHub 用户名或组织名
+          OWNER: xianren78   # TODO: 改成你的 GitHub 用户名或组织名
           SRC: ${{ matrix.src }}
           DST: ${{ matrix.dst }}
         run: |
