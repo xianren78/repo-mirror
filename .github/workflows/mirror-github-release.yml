@@ -28,7 +28,7 @@ jobs:
       - name: Mirror repo + releases/assets
         env:
           GH_PAT: ${{ secrets.GH_PAT }}
-          DST_OWNER: xianren78   # TODO：改成你的 GitHub 用户名或组织名
+          DST_OWNER: xianren78   # TODO: 改成你的 GitHub 用户名或组织名
           SRC_URL: ${{ matrix.src }}
           DST_REPO: ${{ matrix.dst }}
         run: |
@@ -75,7 +75,6 @@ jobs:
           repo_dir="${work}/repo.git"
           rm -rf "${repo_dir}"
 
-          # 防止 runner 注入的 github header/凭据干扰
           git config --global --unset-all http.https://github.com/.extraheader || true
           git config --global credential.helper ""
           git config --global user.email "actions@github.com"
@@ -89,9 +88,10 @@ jobs:
           git push --force --prune "${dst_url}" "refs/tags/*:refs/tags/*"
           echo "==> Git refs synced."
 
-          # -------- 3) 同步 Releases + assets（保持源文件名）--------
+          # -------- 3) 同步 Releases + assets（保持源文件名；分页查 assets）--------
           export GH_TOKEN="${GH_PAT}"
 
+          # 拉取源 releases（前 100 个，够用不够再加分页）
           src_releases="$(curl -fsSL -H "Accept: application/vnd.github+json" \
             "${API}/repos/${SRC_OWNER}/${SRC_REPO}/releases?per_page=100")"
           rel_count="$(echo "${src_releases}" | jq 'length')"
@@ -100,6 +100,23 @@ jobs:
 
           assets_dir="${work}/assets"
           mkdir -p "${assets_dir}"
+
+          # helper：获取目标 release_id（通过 tag）
+          get_dst_release_id() {
+            local tag="$1"
+            gh api -H "Accept: application/vnd.github+json" \
+              "/repos/${DST_OWNER}/${DST_REPO}/releases/tags/${tag}" \
+              --jq '.id' 2>/dev/null || true
+          }
+
+          # helper：分页拉取目标 release 的所有 asset 名称
+          # 输出：每行一个 asset name
+          list_dst_asset_names() {
+            local release_id="$1"
+            gh api --paginate -H "Accept: application/vnd.github+json" \
+              "/repos/${DST_OWNER}/${DST_REPO}/releases/${release_id}/assets?per_page=100" \
+              --jq '.[].name' 2>/dev/null || true
+          }
 
           echo "${src_releases}" | jq -c '.[]' | while read -r rel; do
             tag="$(echo "${rel}" | jq -r '.tag_name')"
@@ -111,7 +128,7 @@ jobs:
 
             echo "---- Release tag: ${tag} target_commitish=${target:-<empty>}"
 
-            # 3.1 目标 release 不存在就创建（target_commitish 只有在目标存在时才用）
+            # 3.1 创建目标 release（不存在才创建）
             if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" >/dev/null 2>&1; then
               echo "Release exists on destination: ${tag}"
             else
@@ -134,14 +151,22 @@ jobs:
               gh release create "${args[@]}"
             fi
 
-            # 3.2 同步 assets：上传名 = 本地文件 basename = 源 aname
+            # 3.2 关键：分页获取“目标 release 全量 assets 名称”，写入文件，供下载前判断
+            dst_release_id="$(get_dst_release_id "${tag}")"
+            if [ -z "${dst_release_id}" ]; then
+              echo "  - warning: cannot get destination release id for tag=${tag}, skipping assets"
+              continue
+            fi
+
+            dst_assets_file="${work}/dst_assets_${tag}.txt"
+            list_dst_asset_names "${dst_release_id}" | sed 's/\r$//' > "${dst_assets_file}" || true
+
             echo "${rel}" | jq -c '.assets[]? // empty' | while read -r a; do
               aname="$(echo "${a}" | jq -r '.name')"
               adl="$(echo "${a}" | jq -r '.browser_download_url')"
 
-              # 下载前实时查：目标 release 已有同名 asset 就跳过下载
-              if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' \
-                | grep -Fxq "${aname}"; then
+              # 下载前判断：用“全量 assets 列表”匹配（不会漏页）
+              if grep -Fxq "${aname}" "${dst_assets_file}"; then
                 echo "  - asset exists, skip download: ${aname}"
                 continue
               fi
@@ -152,7 +177,7 @@ jobs:
               echo "  - downloading: ${aname}"
               curl -fL --retry 3 --retry-delay 2 -o "${tmpfile}" "${adl}"
 
-              # 超大文件保护（GitHub 单个 asset 上限 2GB）
+              # 2GB 上限保护
               size="$(stat -c%s "${tmpfile}")"
               max=$((1900 * 1024 * 1024))
               if [ "${size}" -gt "${max}" ]; then
@@ -161,18 +186,18 @@ jobs:
                 continue
               fi
 
-              # 兜底：下载完再查一次（防并发）
-              if gh release view "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --json assets -q '.assets[].name' \
-                | grep -Fxq "${aname}"; then
+              # 兜底：下载后再查一次（重新分页拉一次或增量更新列表）
+              # 这里增量更新：若有人并发上传，我们再查一遍当前列表
+              if list_dst_asset_names "${dst_release_id}" | sed 's/\r$//' | grep -Fxq "${aname}"; then
                 echo "  - asset appeared during download, skip upload: ${aname}"
                 rm -f "${tmpfile}"
                 continue
               fi
 
               echo "  - uploading: ${aname}"
-              # gh 用 basename 当 asset 名，所以此处 asset 名就是 aname（符合“保持源文件名”）
+              # asset 名 = 本地 basename = aname（保持源文件名）
               gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}"
-              # 如果你希望并发下也绝不失败，改成：
+              # 若你想并发永不失败，改成：
               # gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}" --clobber
 
               rm -f "${tmpfile}"
