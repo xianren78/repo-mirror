@@ -115,13 +115,29 @@ jobs:
               echo "Release exists on destination: ${tag}"
             else
               echo "Creating release on destination: ${tag}"
-              args=( "${tag}" --repo "${DST_OWNER}/${DST_REPO}" --target "${target}" )
-              [ -n "${name}" ] && args+=( --title "${name}" )
-              # notes 允许为空，但 gh 需要参数存在才写
-              args+=( --notes "${body}" )
-              [ "${prerelease}" = "true" ] && args+=( --prerelease )
-              [ "${draft}" = "true" ] && args+=( --draft )
-              gh release create "${args[@]}"
+            # 先判断 target_commitish 在目标仓库是否存在（优先当作分支/标签名检查）
+            use_target=""
+            if [ -n "${target}" ] && [ "${target}" != "null" ] && [ "${target}" != "HEAD" ]; then
+              if git ls-remote --exit-code "${dst_url}" "refs/heads/${target}" >/dev/null 2>&1; then
+                use_target="${target}"
+              elif git ls-remote --exit-code "${dst_url}" "refs/tags/${target}" >/dev/null 2>&1; then
+                use_target="${target}"
+              else
+                # 如果是 SHA（40位十六进制），通常也可以用；但不保证目标有该对象，所以这里直接回退更稳
+                use_target=""
+              fi
+            fi
+            
+            args=( "${tag}" --repo "${DST_OWNER}/${DST_REPO}" )
+            [ -n "${use_target}" ] && args+=( --target "${use_target}" )
+            
+            [ -n "${name}" ] && args+=( --title "${name}" )
+            args+=( --notes "${body}" )
+            [ "${prerelease}" = "true" ] && args+=( --prerelease )
+            [ "${draft}" = "true" ] && args+=( --draft )
+            
+            gh release create "${args[@]}"
+
             fi
 
             # 取目标已有 assets 名称（用于跳过同名）
