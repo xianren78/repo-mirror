@@ -43,15 +43,23 @@ jobs:
           DST: ${{ matrix.dst }}
         run: |
           set -euo pipefail
-
+          
           echo "==> SRC: ${SRC}"
           echo "==> DST: ${OWNER}/${DST}"
-
-          # 1) 目标仓库不存在则创建（默认 public；想 private 就把 --private 换上）
+          
           API="https://api.github.com"
           AUTH="Authorization: token ${GH_PAT}"
-
-          # 判断是组织还是个人：能 GET /orgs/OWNER 则当组织，否则当个人
+          
+          # -------- 解析源仓库 owner/repo，用来读取 default_branch --------
+          SRC_PATH="${SRC#https://github.com/}"
+          SRC_PATH="${SRC_PATH%.git}"
+          SRC_OWNER="${SRC_PATH%%/*}"
+          SRC_REPO="${SRC_PATH#*/}"
+          
+          SRC_DEFAULT_BRANCH="$(curl -fsSL -H "${AUTH}" "${API}/repos/${SRC_OWNER}/${SRC_REPO}" | jq -r '.default_branch')"
+          echo "==> Source default branch: ${SRC_DEFAULT_BRANCH}"
+          
+          # -------- 1) 目标仓库不存在则创建 --------
           if curl -fsSL -H "${AUTH}" "${API}/orgs/${OWNER}" >/dev/null 2>&1; then
             CREATE_URL="${API}/orgs/${OWNER}/repos"
             CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
@@ -59,7 +67,7 @@ jobs:
             CREATE_URL="${API}/user/repos"
             CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
           fi
-
+          
           if curl -fsSL -H "${AUTH}" "${API}/repos/${OWNER}/${DST}" >/dev/null 2>&1; then
             echo "Repo exists: ${OWNER}/${DST}"
           else
@@ -67,25 +75,41 @@ jobs:
             curl -fsSL -X POST -H "${AUTH}" -H "Content-Type: application/json" \
               -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
           fi
-
-          # 2) mirror clone + mirror push（保留所有 refs：branches/tags）
+          
+          # -------- 2) mirror clone + mirror push（branches/tags 等）--------
           work="$(mktemp -d)"
           trap 'rm -rf "$work"' EXIT
-
+          
           git config --global user.email "actions@github.com"
           git config --global user.name  "github-actions[bot]"
-
+          
           echo "Cloning --mirror..."
+          rm -rf "${work}/repo.git"
           git clone --mirror "${SRC}" "${work}/repo.git"
-
           cd "${work}/repo.git"
-
-          # 目标 remote（使用 PAT 推送）
-          dst_url="https://${GH_PAT}@github.com/${OWNER}/${DST}.git"
+          
+          # 删除 PR refs（GitHub 禁止 push hidden refs: refs/pull/*）
+          git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
+          
+          # 目标 remote（用 x-access-token 最稳）
+          dst_url="https://x-access-token:${GH_PAT}@github.com/${OWNER}/${DST}.git"
           git remote set-url --push origin "${dst_url}" || true
           git remote add github "${dst_url}" 2>/dev/null || true
-
+          
           echo "Pushing --mirror..."
+          # 不用 --mirror 推 refs/pull 后就不会再 hidden ref 报错；这里继续用 --mirror
           git push --mirror "${dst_url}"
-
+          
+          # -------- 3) 同步目标仓库默认分支为源默认分支 --------
+          # 先确认目标确实有该分支（否则 PATCH 会失败）
+          if git ls-remote --exit-code "${dst_url}" "refs/heads/${SRC_DEFAULT_BRANCH}" >/dev/null 2>&1; then
+            echo "==> Setting destination default branch to: ${SRC_DEFAULT_BRANCH}"
+            curl -fsSL -X PATCH -H "${AUTH}" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg b "${SRC_DEFAULT_BRANCH}" '{default_branch:$b}')" \
+              "${API}/repos/${OWNER}/${DST}" >/dev/null
+          else
+            echo "==> Skip setting default branch; branch not found on destination: ${SRC_DEFAULT_BRANCH}"
+          fi
+          
           echo "Done: ${OWNER}/${DST}"
+
