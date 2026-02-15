@@ -20,10 +20,8 @@ jobs:
       matrix:
         include:
           # ====== 把你要同步的 repo 都放这里 ======
-          - { src: "https://github.com/sbwml/package_network_utils_xdp-tools", dst: "package_network_utils_xdp-tools" }
-          - { src: "https://github.com/sbwml/packages_new_nat6",              dst: "packages_new_nat6" }
-          - { src: "https://github.com/sbwml/feeds_telephony_libs_dahdi-linux", dst: "feeds_telephony_libs_dahdi-linux" }
-          # ... 继续追加你的列表
+          - { src: "https://github.com/sbwml/openwrt-llvm-toolchain", dst: "openwrt-llvm-toolchain" }
+          - { src: "https://github.com/sbwml/openwrt_caches",              dst: "openwrt_caches" }
           # =======================================
 
     steps:
