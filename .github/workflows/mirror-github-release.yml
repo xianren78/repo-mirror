@@ -98,6 +98,9 @@ jobs:
           echo "==> Source releases: ${rel_count}"
           [ "${rel_count}" -eq 0 ] && exit 0
 
+          assets_dir="${work}/assets"
+          mkdir -p "${assets_dir}"
+
           echo "${src_releases}" | jq -c '.[]' | while read -r rel; do
             tag="$(echo "${rel}" | jq -r '.tag_name')"
             name="$(echo "${rel}" | jq -r '.name // empty')"
@@ -131,7 +134,7 @@ jobs:
               gh release create "${args[@]}"
             fi
 
-            # 3.2 同步 assets：保持“源文件名” aname，不加 tag 前缀
+            # 3.2 同步 assets：上传名 = 本地文件 basename = 源 aname
             echo "${rel}" | jq -c '.assets[]? // empty' | while read -r a; do
               aname="$(echo "${a}" | jq -r '.name')"
               adl="$(echo "${a}" | jq -r '.browser_download_url')"
@@ -143,8 +146,9 @@ jobs:
                 continue
               fi
 
-              tmpfile="${work}/${aname}"
+              tmpfile="${assets_dir}/${aname}"
               rm -f "${tmpfile}"
+
               echo "  - downloading: ${aname}"
               curl -fL --retry 3 --retry-delay 2 -o "${tmpfile}" "${adl}"
 
@@ -166,10 +170,10 @@ jobs:
               fi
 
               echo "  - uploading: ${aname}"
-              # 显式指定上传名，确保和源一致
-              gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}" --name "${aname}"
-              # 若你希望并发时也绝不失败，可用：
-              # gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}" --name "${aname}" --clobber
+              # gh 用 basename 当 asset 名，所以此处 asset 名就是 aname（符合“保持源文件名”）
+              gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}"
+              # 如果你希望并发下也绝不失败，改成：
+              # gh release upload "${tag}" "${tmpfile}" --repo "${DST_OWNER}/${DST_REPO}" --clobber
 
               rm -f "${tmpfile}"
             done
