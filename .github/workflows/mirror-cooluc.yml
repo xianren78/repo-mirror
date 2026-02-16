@@ -21,7 +21,6 @@ jobs:
           - { src: "https://git.cooluc.com/sbwml/package_libs_musl-libc",            dst: "package_libs_musl-libc" }
           - { src: "https://git.cooluc.com/sbwml/shortcut-fe",                       dst: "shortcut-fe" }
           - { src: "https://git.cooluc.com/sbwml/nft-fullcone",                       dst: "nft-fullcone" }
-          - { src: "https://git.cooluc.com/sbwml/luci-app-dockerman",                 dst: "luci-app-dockerman" }
           - { src: "https://git.cooluc.com/sbwml/packages_utils_docker",              dst: "packages_utils_docker" }
           - { src: "https://git.cooluc.com/sbwml/packages_utils_dockerd",             dst: "packages_utils_dockerd" }
           - { src: "https://git.cooluc.com/sbwml/packages_utils_containerd",          dst: "packages_utils_containerd" }
