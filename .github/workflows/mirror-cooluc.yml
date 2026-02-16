@@ -3,7 +3,7 @@ name: Mirror cooluc repos to GitHub
 on:
   workflow_dispatch:
   schedule:
-    - cron: "17 2 * * *"  # 每天 11:17 JST 左右跑一次（UTC 02:17）
+    - cron: "17 19 * * *"  # 每天 11:17 JST 左右跑一次（UTC 02:17）
 permissions:
   contents: write
 
