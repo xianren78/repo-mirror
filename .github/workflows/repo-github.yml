@@ -63,6 +63,7 @@ jobs:
           - { src: "https://github.com/sbwml/default-settings",                           dst: "default-settings" }
           - { src: "https://github.com/sbwml/wwan-packages",                              dst: "wwan-packages" }
 
+          - { src: "https://github.com/sbwml/luci-app-dockerman",                       dst: "luci-app-dockerman" }
           - { src: "https://github.com/sbwml/luci-app-filemanager",                       dst: "luci-app-filemanager" }
           - { src: "https://github.com/sbwml/luci-app-quickfile",                         dst: "luci-app-quickfile" }
           - { src: "https://github.com/sbwml/luci-app-airplay2",                          dst: "luci-app-airplay2" }
