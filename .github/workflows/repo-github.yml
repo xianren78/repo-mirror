@@ -3,7 +3,7 @@ name: Mirror sbwml repos to GitHub (set 2)
 on:
   workflow_dispatch:
   schedule:
-    - cron: "41 2 * * *"  # 每天 UTC 02:41（JST 11:41）
+    - cron: "41 19 * * *"  # 每天 UTC 02:41（JST 11:41）
 
 permissions:
   contents: write
