@@ -67,6 +67,7 @@ jobs:
           - { src: "https://github.com/sbwml/luci-app-quickfile",                         dst: "luci-app-quickfile" }
           - { src: "https://github.com/sbwml/luci-app-airplay2",                          dst: "luci-app-airplay2" }
           - { src: "https://github.com/sbwml/luci-app-webdav",                            dst: "luci-app-webdav" }
+          - { src: "https://github.com/sbwml/package_new_istore",                            dst: "package_new_istore" }
 
           - { src: "https://github.com/sbwml/packages_utils_lrzsz",                       dst: "packages_utils_lrzsz" }
           - { src: "https://github.com/sbwml/feeds_packages_net_samba4",                  dst: "feeds_packages_net_samba4" }
