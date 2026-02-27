@@ -56,6 +56,7 @@ jobs:
           - { src: "https://github.com/sbwml/package_kernel_mac80211",                    dst: "package_kernel_mac80211" }
           - { src: "https://github.com/sbwml/package_kernel_ath10k-ct",                   dst: "package_kernel_ath10k-ct" }
           - { src: "https://github.com/sbwml/package_kernel_rtl8822cs",                   dst: "package_kernel_rtl8822cs" }
+          - { src: "https://github.com/sbwml/package_kernel_rtl8852au",                   dst: "package_kernel_rtl8852au" }
 
           - { src: "https://github.com/sbwml/packages_lang_golang",                       dst: "packages_lang_golang" }
           - { src: "https://github.com/sbwml/feeds_packages_lang_node-prebuilt",         dst: "feeds_packages_lang_node-prebuilt" }
