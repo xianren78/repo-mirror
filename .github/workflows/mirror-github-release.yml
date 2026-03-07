@@ -22,6 +22,7 @@ jobs:
           # ====== 把你要同步的 repo 都放这里 ======
           - { src: "https://github.com/sbwml/openwrt-llvm-toolchain", dst: "openwrt-llvm-toolchain" }
           - { src: "https://github.com/sbwml/openwrt_caches",              dst: "openwrt_caches" }
+          - { src: "https://github.com/sbwml/package_kernel_vmlinux-btf",              dst: "package_kernel_vmlinux-btf" }
           # =======================================
 
     steps:
