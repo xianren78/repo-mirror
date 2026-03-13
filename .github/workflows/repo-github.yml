@@ -1,4 +1,4 @@
-name: Mirror sbwml repos to GitHub (set 2)
+name: Mirror sbwml github repos
 
 on:
   workflow_dispatch:
@@ -19,6 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - { src: "https://github.com/sbwml/package_new_expect",                          dst: "package_new_expect" }
+          - { src: "https://github.com/sbwml/luci-app-bluetooth",                            dst: "luci-app-bluetooth" }
+          - { src: "https://github.com/sbwml/package_new_bluez-alsa",                            dst: "package_new_bluez-alsa" }
+          
           - { src: "https://github.com/sbwml/feeds_telephony_libs_dahdi-linux",            dst: "feeds_telephony_libs_dahdi-linux" }
           - { src: "https://github.com/sbwml/kmod_packages_net_xtables-addons",            dst: "kmod_packages_net_xtables-addons" }
           - { src: "https://github.com/sbwml/kmod_packages_net_coova-chilli",             dst: "kmod_packages_net_coova-chilli" }
