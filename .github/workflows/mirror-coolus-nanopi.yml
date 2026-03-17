@@ -1,0 +1,114 @@
+name: Mirror cooluc nanopi repos to GitHub
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "19 19 * * *"  # 每天 11:17 JST 左右跑一次（UTC 02:17）
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-cooluc
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { src: "https://git.cooluc.com/sbwml/luci-theme-argon", dst: "luci-theme-argon" }
+
+    steps:
+      - name: Checkout (this repo)
+        uses: actions/checkout@v4
+
+      - name: Mirror one repo
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          OWNER: xianren78
+          SRC: ${{ matrix.src }}
+          DST: ${{ matrix.dst }}
+          SRC_USER: nanopi
+          SRC_PASS: nanopi
+        run: |
+          set -euo pipefail
+
+          echo "==> SRC: ${SRC}"
+          echo "==> DST: ${OWNER}/${DST}"
+
+          API="https://api.github.com"
+          AUTH="Authorization: token ${GH_PAT}"
+
+          # -------- 解析源仓库 owner/repo（cooluc 是 gitea：/sbwml/repo）--------
+          SRC_PATH="${SRC#https://git.cooluc.com/}"
+          SRC_PATH="${SRC_PATH%.git}"
+          SRC_OWNER="${SRC_PATH%%/*}"
+          SRC_REPO="${SRC_PATH#*/}"
+
+          # 带认证的源仓库地址（仅用于 clone）
+          SRC_AUTH_URL="https://${SRC_USER}:${SRC_PASS}@git.cooluc.com/${SRC_PATH}.git"
+
+          # -------- 目标仓库不存在则创建 --------
+          if curl -fsSL -H "${AUTH}" "${API}/orgs/${OWNER}" >/dev/null 2>&1; then
+            CREATE_URL="${API}/orgs/${OWNER}/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
+          else
+            CREATE_URL="${API}/user/repos"
+            CREATE_BODY=$(jq -nc --arg name "${DST}" '{name:$name, private:false}')
+          fi
+
+          if curl -fsSL -H "${AUTH}" "${API}/repos/${OWNER}/${DST}" >/dev/null 2>&1; then
+            echo "Repo exists: ${OWNER}/${DST}"
+          else
+            echo "Creating repo: ${OWNER}/${DST}"
+            curl -fsSL -X POST -H "${AUTH}" -H "Content-Type: application/json" \
+              -d "${CREATE_BODY}" "${CREATE_URL}" >/dev/null
+          fi
+
+          # -------- mirror clone + mirror push --------
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+
+          git config --global user.email "actions@github.com"
+          git config --global user.name  "github-actions[bot]"
+
+          echo "Cloning --mirror..."
+          rm -rf "${work}/repo.git"
+          git clone --mirror "${SRC_AUTH_URL}" "${work}/repo.git"
+          cd "${work}/repo.git"
+
+          # 删除 PR refs（防止 hidden ref 问题；没有也不影响）
+          git for-each-ref --format='%(refname)' refs/pull | xargs -r -n1 git update-ref -d
+
+          # 用 token 推送（更稳）
+          dst_url="https://x-access-token:${GH_PAT}@github.com/${OWNER}/${DST}.git"
+
+          echo "Pushing --mirror..."
+          git push --mirror "${dst_url}"
+
+          # -------- 设置目标默认分支 = 源默认分支 --------
+          SRC_DEFAULT_BRANCH="$(git symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || true)"
+
+          if [ -z "${SRC_DEFAULT_BRANCH}" ]; then
+            SRC_DEFAULT_BRANCH="$(git for-each-ref --format='%(refname:short)' refs/heads | head -n1 || true)"
+          fi
+
+          echo "==> Source default branch (detected): ${SRC_DEFAULT_BRANCH:-<empty>}"
+
+          if [ -n "${SRC_DEFAULT_BRANCH}" ]; then
+            if git ls-remote --exit-code "${dst_url}" "refs/heads/${SRC_DEFAULT_BRANCH}" >/dev/null 2>&1; then
+              echo "==> Setting destination default branch to: ${SRC_DEFAULT_BRANCH}"
+              curl -fsSL -X PATCH -H "${AUTH}" -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg b "${SRC_DEFAULT_BRANCH}" '{default_branch:$b}')" \
+                "${API}/repos/${OWNER}/${DST}" >/dev/null
+            else
+              echo "==> Skip setting default branch; not found on destination: ${SRC_DEFAULT_BRANCH}"
+            fi
+          else
+            echo "==> Skip setting default branch; cannot detect source default branch"
+          fi
+
+          echo "Done: ${OWNER}/${DST}"
