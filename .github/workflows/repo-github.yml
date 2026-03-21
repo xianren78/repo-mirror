@@ -90,7 +90,7 @@ jobs:
           - { src: "https://github.com/sbwml/luci-app-openlist2",                         dst: "luci-app-openlist2" }
           - { src: "https://github.com/sbwml/luci-app-qbittorrent",                       dst: "luci-app-qbittorrent" }
 
-          - { src: "https://github.com/sbwml/luci-theme-argon",                           dst: "luci-theme-argon" }
+       #   - { src: "https://github.com/sbwml/luci-theme-argon",                           dst: "luci-theme-argon" }
           - { src: "https://github.com/sbwml/luci-app-mosdns",                            dst: "luci-app-mosdns" }
           - { src: "https://github.com/sbwml/OpenAppFilter",                              dst: "OpenAppFilter" }
           - { src: "https://github.com/sbwml/luci-app-mentohust",                         dst: "luci-app-mentohust" }
