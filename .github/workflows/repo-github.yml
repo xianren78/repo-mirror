@@ -82,6 +82,7 @@ jobs:
           - { src: "https://github.com/sbwml/packages_utils_lrzsz",                       dst: "packages_utils_lrzsz" }
           - { src: "https://github.com/sbwml/feeds_packages_net_samba4",                  dst: "feeds_packages_net_samba4" }
           - { src: "https://github.com/sbwml/feeds_packages_net_zerotier",                dst: "feeds_packages_net_zerotier" }
+          - { src: "https://github.com/sbwml/feeds_routing_batman-adv",                dst: "feeds_routing_batman-adv" }
 
           - { src: "https://github.com/sbwml/ariang-nginx",                               dst: "ariang-nginx" }
           - { src: "https://github.com/sbwml/feeds_packages_net_aria2",                   dst: "feeds_packages_net_aria2" }
