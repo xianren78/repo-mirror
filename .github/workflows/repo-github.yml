@@ -67,6 +67,7 @@ jobs:
 
           - { src: "https://github.com/sbwml/packages_lang_golang",                       dst: "packages_lang_golang" }
           - { src: "https://github.com/sbwml/feeds_packages_lang_node-prebuilt",         dst: "feeds_packages_lang_node-prebuilt" }
+          - { src: "https://github.com/sbwml/feeds_packages_lang_node",         dst: "feeds_packages_lang_node" }
 
           - { src: "https://github.com/sbwml/default-settings",                           dst: "default-settings" }
           - { src: "https://github.com/sbwml/wwan-packages",                              dst: "wwan-packages" }
