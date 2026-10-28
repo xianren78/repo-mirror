@@ -78,20 +78,24 @@ jobs:
           
           git config --global user.email "actions@github.com"
           git config --global user.name  "github-actions[bot]"
-          echo "==> 检查仓库网页"
-          curl -sSL -o /dev/null \
-            --connect-timeout 15 --max-time 60 \
-            -w '网页 HTTP 状态码: %{http_code}\n' \
-            "${SRC}"
+          echo "==> DNS"
+          getent ahosts git.cooluc.com || true
 
-          echo "==> 检查 Git 接口"
-          curl --http1.1 -sSL -o /dev/null \
-            --connect-timeout 15 --max-time 60 \
-            -w 'Git 接口 HTTP 状态码: %{http_code}\n' \
-            "${SRC%/}/info/refs?service=git-upload-pack"
+          echo "==> IPv4 网页检测"
+          curl -4 --http1.1 -vL -o /dev/null \
+            --connect-timeout 10 --max-time 20 \
+            -w '\nHTTP: %{http_code}, IP: %{remote_ip}\n' \
+            "${SRC}" || true
 
-          echo "==> 检查 Git 引用读取"
-          git -c http.version=HTTP/1.1 ls-remote "${SRC}" HEAD
+          echo "==> IPv4 Git 接口检测"
+          curl -4 --http1.1 -vL -o /dev/null \
+            --connect-timeout 10 --max-time 20 \
+            -w '\nHTTP: %{http_code}, IP: %{remote_ip}\n' \
+            "${SRC%/}/info/refs?service=git-upload-pack" || true
+
+          echo "==> Git 引用检测"
+          timeout 30s git -c http.version=HTTP/1.1 \
+            ls-remote "${SRC}" HEAD || true
           
           echo "Cloning --mirror..."
           rm -rf "${work}/repo.git"
