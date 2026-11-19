@@ -54,7 +54,7 @@ jobs:
           - { src: "https://github.com/sbwml/package_libs_ngtcp2",                        dst: "package_libs_ngtcp2" }
 
           - { src: "https://github.com/sbwml/feeds_packages_net_curl",                    dst: "feeds_packages_net_curl" }
-          - { src: "https://github.com/sbwml/feeds_packages_net_nginx",                   dst: "feeds_packages_net_nginx" }
+          #- { src: "https://github.com/sbwml/feeds_packages_net_nginx",                   dst: "feeds_packages_net_nginx" }
 
           - { src: "https://github.com/sbwml/package_system_urngd",                       dst: "package_system_urngd" }
           - { src: "https://github.com/sbwml/autocore-arm",                               dst: "autocore-arm" }
